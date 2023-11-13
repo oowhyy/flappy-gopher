@@ -93,12 +93,15 @@ type Game struct {
 	windowW int
 	windowH int
 
-	gophers map[int]*Gopher
+	// gopher
+	gophers  map[int]*Gopher
+	gophersX int
 
 	Speed int
 
 	// Pipes
 	Pipes      []*Pipe
+	PipesAhead []*Pipe
 	SpawnDelay int
 	GapY       int
 	Timer      int
@@ -126,7 +129,8 @@ func NewGame(windowW, windowHeight int) *Game {
 func (g *Game) Restart() {
 	g.mode = ModeTitle
 	g.gophers = make(map[int]*Gopher, 0)
-	g.gophers[1] = NewGopher(1, 120, 100)
+	g.gophersX = 120
+	g.gophers[1] = NewGopher(1, g.gophersX, 100)
 	// g.gophers[2] = NewGopher(2, 200, 100)
 
 	g.Timer = 0
@@ -167,19 +171,8 @@ func (g *Game) Step() {
 			g.mode = ModeGame
 		}
 	case ModeGame:
-
-		// if g.qInput != nil {
-		// 	fmt.Println("jumping...")
-		// 	for id, jump := range g.qInput {
-		// 		if jump {
-		// 			g.gophers[id].Jump()
-		// 		}
-		// 	}
-		// 	g.qInput = nil
-		// }
 		select {
 		case inp := <-g.inpChan:
-			fmt.Println("jumping...")
 			for id, jump := range inp {
 				if jump {
 					g.gophers[id].Jump()
@@ -204,12 +197,16 @@ func (g *Game) Step() {
 			pipe.Move()
 		}
 		// 3. spawn new
-		if g.Timer <= 0 {
-			g.Timer = g.SpawnDelay
-			newPipe := NewPipe(g.windowW, g.windowH, g.GapY, g.Speed)
-			g.Pipes = append(g.Pipes, newPipe)
+		g.SpawnPipe()
+
+		// 4. check pass
+		if len(g.PipesAhead) > 0 {
+			p0 := g.PipesAhead[0]
+			if p0.Passed(g.gophersX) {
+				g.score++
+				g.PipesAhead = g.PipesAhead[1:]
+			}
 		}
-		g.Timer--
 
 		// check hit
 		for _, pipe := range g.Pipes {
@@ -217,7 +214,6 @@ func (g *Game) Step() {
 				if pipe.Collide(gopher) || gopher.OffScreenY(g.windowH-tileSize) {
 					delete(g.gophers, gopher.ID)
 				}
-				g.score += pipe.Score(gopher)
 			}
 		}
 		if len(g.gophers) == 0 {
@@ -232,6 +228,16 @@ func (g *Game) Step() {
 			g.Restart()
 		}
 	}
+}
+
+func (g *Game) SpawnPipe() {
+	if g.Timer <= 0 {
+		g.Timer = g.SpawnDelay
+		newPipe := NewPipe(g.windowW, g.windowH, g.GapY, g.Speed)
+		g.Pipes = append(g.Pipes, newPipe)
+		g.PipesAhead = append(g.Pipes, newPipe)
+	}
+	g.Timer--
 }
 
 func (g *Game) Update() error {
@@ -251,6 +257,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		g.Base.Draw(screen)
 	}
+	// if len(g.PipesAhead) > 0 {
+	// 	p0 := g.PipesAhead[0]
+	// 	for _, gg := range g.gophers {
+	// 		DrawLine(screen, gg.PosX(), gg.PosY(), p0.PosX(), p0.PosTopY())
+	// 		DrawLine(screen, gg.PosX(), gg.PosY(), p0.PosX(), p0.PosBotY())
+	// 	}
+	// }
 	var titleTexts []string
 	var texts []string
 	switch g.mode {

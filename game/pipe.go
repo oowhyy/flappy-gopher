@@ -34,7 +34,6 @@ type Pipe struct {
 	topImg   *ebiten.Image
 	shaftImg *ebiten.Image
 	passed   bool
-	scored   bool
 }
 
 func NewPipe(windowW, windowH int, gap int, speed int) *Pipe {
@@ -85,26 +84,15 @@ func (p *Pipe) Collide(gopher *Gopher) bool {
 	return hitTop || hitBot
 }
 
-func (p *Pipe) Passed(gopher *Gopher) bool {
+func (p *Pipe) Passed(posX int) bool {
 	if p.passed {
 		return true
 	}
 	// already passed
-	if p.PosX()+p.Width() < gopher.PosX() {
+	if p.PosX()+p.Width() < posX {
 		p.passed = true
 	}
 	return p.passed
-}
-func (p *Pipe) Score(gopher *Gopher) int {
-	if p.scored {
-		return 0
-	}
-	if p.Passed(gopher) {
-		p.passed = true
-		p.scored = true
-		return 1
-	}
-	return 0
 }
 
 func (p *Pipe) Move() {

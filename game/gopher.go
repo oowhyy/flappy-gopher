@@ -13,11 +13,11 @@ type Gopher struct {
 	speedY float64
 }
 
-func NewGopher(ID int, x, y float64) *Gopher {
+func NewGopher(ID int, x, y int) *Gopher {
 	return &Gopher{
 		ID:     ID,
-		x:      x,
-		y:      y,
+		x:      float64(x),
+		y:      float64(y),
 		speedY: 0,
 	}
 }
@@ -27,7 +27,6 @@ func (g *Gopher) Jump() {
 }
 
 func (g *Gopher) Move() {
-	// g.x += 2
 	g.y += g.speedY
 	// Gravity
 	g.speedY += 0.25

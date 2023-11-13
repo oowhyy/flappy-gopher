@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"image"
@@ -13,12 +13,12 @@ type Base struct {
 	delta   int
 }
 
-func NewBase(speed int) *Base {
+func NewBase(windowH int, speed int) *Base {
 	baseimg := tilesImage.SubImage(image.Rect(0, 0, tileSize, tileSize)).(*ebiten.Image)
 	return &Base{
 		baseImg: baseimg,
 		speed:   speed,
-		y:       windowHeight - baseimg.Bounds().Dy(),
+		y:       windowH - baseimg.Bounds().Dy(),
 	}
 }
 

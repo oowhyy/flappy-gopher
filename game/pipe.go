@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"image"
@@ -37,10 +37,10 @@ type Pipe struct {
 	scored   bool
 }
 
-func NewPipe(gap int, speed int) *Pipe {
-	topY := rand.Intn(windowHeight-gap-2*tileSize) + tileSize
+func NewPipe(windowW, windowH int, gap int, speed int) *Pipe {
+	topY := rand.Intn(windowH-gap-2*tileSize) + tileSize
 	return &Pipe{
-		x:        windowWidth,
+		x:        windowW,
 		topY:     topY,
 		speed:    speed,
 		gap:      gap,
@@ -63,7 +63,7 @@ func (p *Pipe) Draw(screen *ebiten.Image) {
 	//bottom part
 	deltaY := p.topY + p.gap
 	op.GeoM.Reset()
-	botShaftH := windowHeight - deltaY - tileSize
+	botShaftH := screen.Bounds().Dy() - deltaY - tileSize
 	botShaftTiling := toTiling(p.shaftImg, p.Width(), botShaftH)
 	op.GeoM.Translate(float64(p.x), float64(deltaY))
 	screen.DrawImage(p.topImg, op)

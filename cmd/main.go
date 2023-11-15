@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"gographics/game"
+	"gographics/neapy"
 	_ "image/png"
 	"log"
 	"os"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	hook "github.com/robotn/gohook"
-	"github.com/yaricom/goNEAT/v4/examples/xor"
 	"github.com/yaricom/goNEAT/v4/experiment"
 	"github.com/yaricom/goNEAT/v4/neat"
 	"github.com/yaricom/goNEAT/v4/neat/genetics"
@@ -26,25 +26,23 @@ const (
 )
 
 func main() {
-	flag.Parse()
 	ebiten.SetWindowSize(windowWidth, windowHeight)
 	ebiten.SetWindowTitle("Flappy Gopher (Ebitengine Demo)")
 	ebiten.SetTPS(60)
-	game := game.NewGame(windowWidth, windowHeight)
+	game := game.NewGame(windowWidth, windowHeight, 20)
 
-	humanPlayer(game)
-
+	go runExperiment(game)
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
 	}
+
+	// time.Sleep(time.Second * 10)
 }
 
 func humanPlayer(game *game.Game) {
 	hook.Register(hook.MouseHold, []string{}, func(e hook.Event) {
-		fmt.Println("clicked")
 		go func() {
-			res := game.SyncInput(map[int]bool{1: true})
-			fmt.Println("success: ", res)
+			_ = game.SyncInput(map[int]bool{1: true, 2: true})
 		}()
 	})
 	go func() {
@@ -55,16 +53,15 @@ func humanPlayer(game *game.Game) {
 	}()
 }
 
-func runExperiment() {
-	contextPath := "./data/xor.neat.yaml"
-	genomePath := "./data/xor_start.yaml"
+func runExperiment(g *game.Game) {
+	contextPath := "./data/flappy.neat.yaml"
+	genomePath := "./data/flappy_start.yaml"
 	experimentName := "Flappy"
-	outDirPath := "./out"
 	flag.Parse()
 
 	// Load NEAT options
 	neatOptions, err := neat.ReadNeatOptionsFromFile(contextPath)
-	neat.LogLevel = neat.LogLevelError
+	neat.LogLevel = neat.LogLevelInfo
 	if err != nil {
 		log.Fatal("Failed to load NEAT options: ", err)
 	}
@@ -82,8 +79,6 @@ func runExperiment() {
 	}
 	fmt.Println(startGenome)
 
-	outDir := outDirPath
-
 	if err != nil {
 		log.Fatal("Failed to create output directory: ", err)
 	}
@@ -92,12 +87,12 @@ func runExperiment() {
 	expt := experiment.Experiment{
 		Id:       0,
 		Trials:   make(experiment.Trials, neatOptions.NumRuns),
-		RandSeed: 111,
+		RandSeed: 123,
 	}
 	var generationEvaluator experiment.GenerationEvaluator
 
-	expt.MaxFitnessScore = 16.0 // as given by fitness function definition
-	generationEvaluator = xor.NewXORGenerationEvaluator(outDir)
+	expt.MaxFitnessScore = 25000000.0 // as given by fitness function definition
+	generationEvaluator = neapy.NewFlappyEvaluator(g)
 
 	// prepare to execute
 	errChan := make(chan error)

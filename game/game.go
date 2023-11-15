@@ -8,6 +8,9 @@ import (
 	"image/color"
 	_ "image/png"
 	"log"
+	"math/rand"
+	"sync"
+	"sync/atomic"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -16,7 +19,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 	resources "github.com/hajimehoshi/ebiten/v2/examples/resources/images/flappy"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 )
 
@@ -31,7 +33,6 @@ var (
 	tilesImage      *ebiten.Image
 	titleArcadeFont font.Face
 	arcadeFont      font.Face
-	smallArcadeFont font.Face
 )
 
 func init() {
@@ -68,26 +69,23 @@ func init() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	smallArcadeFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    smallFontSize,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
-type Mode int
+type GameMode string
 
 const (
-	ModeTitle Mode = iota
-	ModeGame
-	ModeGameOver
+	ModePlay     GameMode = "play"
+	ModeGameOver GameMode = "gameover"
 )
 
 type Game struct {
-	mode Mode
+	// meta
+	mode           GameMode
+	stepID         int
+	mu             sync.Mutex
+	score          int
+	dynamicSPU     bool
+	stepsPerUpdate int
 
 	// window
 	windowW int
@@ -97,67 +95,70 @@ type Game struct {
 	gophers  map[int]*Gopher
 	gophersX int
 
-	Speed int
+	// general scrollX speed
+	speed int
 
-	// Pipes
-	Pipes      []*Pipe
-	PipesAhead []*Pipe
-	SpawnDelay int
-	GapY       int
-	Timer      int
+	// pipes
+	pipes      []*Pipe
+	pipesAhead []*Pipe
+	spawnDelay int
+	gapY       int
+	spawnTimer int
 
-	// Base
-	Base *Base
-
-	gameoverCount int
-	score         int
+	// base
+	base *Base
 
 	// api
 	inpChan chan map[int]bool
-	done    chan bool
+
+	statesChan     chan *State
+	activeRequests atomic.Int32
+	done           chan bool
 }
 
-func NewGame(windowW, windowHeight int) *Game {
+func NewGame(windowW, windowHeight int, gopherN int) *Game {
 	g := &Game{
 		windowW: windowW,
 		windowH: windowHeight,
 	}
-	g.Restart()
+	g.restart(gopherN)
 	return g
 }
 
-func (g *Game) Restart() {
-	g.mode = ModeTitle
-	g.gophers = make(map[int]*Gopher, 0)
+func (g *Game) restart(gopherN int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.done != nil && g.mode != ModeGameOver {
+		close(g.done)
+	}
+	g.dynamicSPU = false
+	g.mode = ModePlay
+	g.gophers = make(map[int]*Gopher, gopherN)
 	g.gophersX = 120
-	g.gophers[1] = NewGopher(1, g.gophersX, 100)
+	g.stepID = 0
+	for i := 0; i < gopherN; i++ {
+		g.gophers[i] = NewGopher(i, 100, g.windowH*3/4-gopherImage.Bounds().Dy()/2-rand.Intn(g.windowH/2))
+	}
 	// g.gophers[2] = NewGopher(2, 200, 100)
 
-	g.Timer = 0
+	g.spawnTimer = 0
+	g.score = 0
+	g.stepsPerUpdate = 1
 	g.inpChan = make(chan map[int]bool)
+	g.statesChan = make(chan *State)
 	g.done = make(chan bool)
-	g.SpawnDelay = 110
-	g.GapY = 180
-	g.Pipes = make([]*Pipe, 0)
-	g.Speed = 3
-	g.Base = NewBase(g.windowH, g.Speed)
+	g.spawnDelay = 110
+	g.gapY = 180
+	g.pipes = make([]*Pipe, 0)
+	g.speed = 3
+	g.base = NewBase(g.windowH, g.speed)
 }
 
 func (g *Game) GameOver() {
 	g.mode = ModeGameOver
-	g.gameoverCount = 30
+
 	// close(g.inpChan)
 	close(g.done)
-}
-
-func (g *Game) isKeyJustPressed() bool {
-	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-		return true
-	}
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		return true
-	}
-	return false
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -165,17 +166,20 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (g *Game) Step() {
+	g.mu.Lock()
+	defer func() {
+		g.mu.Unlock()
+		g.stepID++
+	}()
 	switch g.mode {
-	case ModeTitle:
-		if g.isKeyJustPressed() {
-			g.mode = ModeGame
-		}
-	case ModeGame:
+	case ModePlay:
+		// process input
 		select {
 		case inp := <-g.inpChan:
 			for id, jump := range inp {
-				if jump {
-					g.gophers[id].Jump()
+				gopher, ok := g.gophers[id]
+				if ok && jump {
+					gopher.Jump()
 				}
 			}
 		default:
@@ -185,31 +189,31 @@ func (g *Game) Step() {
 		for _, gopher := range g.gophers {
 			gopher.Move()
 		}
-		g.Base.Move()
+		g.base.Move()
 
 		// Update pipes
 		// 1. remove old
-		if len(g.Pipes) > 0 && g.Pipes[0].PosX()+g.Pipes[0].Width() < 0 {
-			g.Pipes = g.Pipes[1:]
+		if len(g.pipes) > 0 && g.pipes[0].PosX()+g.pipes[0].Width() < 0 {
+			g.pipes = g.pipes[1:]
 		}
 		// 2. move
-		for _, pipe := range g.Pipes {
+		for _, pipe := range g.pipes {
 			pipe.Move()
 		}
 		// 3. spawn new
 		g.SpawnPipe()
 
 		// 4. check pass
-		if len(g.PipesAhead) > 0 {
-			p0 := g.PipesAhead[0]
+		if len(g.pipesAhead) > 0 {
+			p0 := g.pipesAhead[0]
 			if p0.Passed(g.gophersX) {
 				g.score++
-				g.PipesAhead = g.PipesAhead[1:]
+				g.pipesAhead = g.pipesAhead[1:]
 			}
 		}
 
 		// check hit
-		for _, pipe := range g.Pipes {
+		for _, pipe := range g.pipes {
 			for _, gopher := range g.gophers {
 				if pipe.Collide(gopher) || gopher.OffScreenY(g.windowH-tileSize) {
 					delete(g.gophers, gopher.ID)
@@ -219,58 +223,57 @@ func (g *Game) Step() {
 		if len(g.gophers) == 0 {
 			g.GameOver()
 		}
-
 	case ModeGameOver:
-		if g.gameoverCount > 0 {
-			g.gameoverCount--
-		}
-		if g.gameoverCount == 0 && g.isKeyJustPressed() {
-			g.Restart()
-		}
+		// do nothing until reset
 	}
+
+	g.pushState()
 }
 
 func (g *Game) SpawnPipe() {
-	if g.Timer <= 0 {
-		g.Timer = g.SpawnDelay
-		newPipe := NewPipe(g.windowW, g.windowH, g.GapY, g.Speed)
-		g.Pipes = append(g.Pipes, newPipe)
-		g.PipesAhead = append(g.Pipes, newPipe)
+	if g.spawnTimer <= 0 {
+		g.spawnTimer = g.spawnDelay
+		newPipe := NewPipe(g.windowW, g.windowH, g.gapY, g.speed)
+		g.pipes = append(g.pipes, newPipe)
+		g.pipesAhead = append(g.pipes, newPipe)
 	}
-	g.Timer--
+	g.spawnTimer--
 }
 
 func (g *Game) Update() error {
+	if g.dynamicSPU {
+		for i := 0; i < g.stepsPerUpdate; i++ {
+			g.Step()
+		}
 
-	g.Step()
+		if ebiten.ActualTPS() < 50 {
+			if g.stepsPerUpdate > 1 {
+				g.stepsPerUpdate--
+			}
+		} else {
+			g.stepsPerUpdate++
+		}
+	} else {
+		g.Step()
+		// g.Step()
+		g.Step()
+	}
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{0x80, 0xa0, 0xc0, 0xff})
-	for _, pipe := range g.Pipes {
+	for _, pipe := range g.pipes {
 		pipe.Draw(screen)
 	}
-	if g.mode != ModeTitle {
-		for _, gopher := range g.gophers {
-			gopher.Draw(screen)
-		}
-		g.Base.Draw(screen)
+	for _, gopher := range g.gophers {
+		gopher.Draw(screen)
 	}
-	// if len(g.PipesAhead) > 0 {
-	// 	p0 := g.PipesAhead[0]
-	// 	for _, gg := range g.gophers {
-	// 		DrawLine(screen, gg.PosX(), gg.PosY(), p0.PosX(), p0.PosTopY())
-	// 		DrawLine(screen, gg.PosX(), gg.PosY(), p0.PosX(), p0.PosBotY())
-	// 	}
-	// }
+	g.base.Draw(screen)
+
 	var titleTexts []string
 	var texts []string
-	switch g.mode {
-	case ModeTitle:
-		titleTexts = []string{"FLAPPY GOPHER"}
-		texts = []string{"", "", "", "", "", "", "", "PRESS SPACE KEY", "", "OR A/B BUTTON", "", "OR TOUCH SCREEN"}
-	case ModeGameOver:
+	if g.mode == ModeGameOver {
 		texts = []string{"", "GAME OVER!"}
 	}
 
@@ -284,18 +287,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, l, arcadeFont, x, (i+4)*fontSize, color.White)
 	}
 
-	if g.mode == ModeTitle {
-		msg := []string{
-			"Go Gopher by Renee French is",
-			"licenced under CC BY 3.0.",
-		}
-		for i, l := range msg {
-			x := (g.windowW - len(l)*smallFontSize) / 2
-			text.Draw(screen, l, smallArcadeFont, x, g.windowH-4+(i-1)*smallFontSize, color.White)
-		}
-	}
-
 	scoreStr := fmt.Sprintf("%04d", g.Score())
+	text.Draw(screen, scoreStr, arcadeFont, g.windowW-len(scoreStr)*fontSize, fontSize, color.White)
+	spuStr := fmt.Sprintf("%d", g.stepsPerUpdate)
+	text.Draw(screen, spuStr, arcadeFont, 10, fontSize, color.White)
 	text.Draw(screen, scoreStr, arcadeFont, g.windowW-len(scoreStr)*fontSize, fontSize, color.White)
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("TPS: %0.2f", ebiten.ActualTPS()))
 }

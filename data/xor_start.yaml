@@ -19,5 +19,5 @@ genome:
   # The genes - connection between neuron nodes within this genome
   genes:
     - { src_id: 1,  tgt_id: 4,  weight: 0.0, trait_id: 1, innov_num: 1,  mut_num: 0, recurrent: false, enabled: true }
-    - { src_id: 2,  tgt_id: 4,  weight: 0.0, trait_id: 1, innov_num: 1,  mut_num: 0, recurrent: false, enabled: true }
-    - { src_id: 3,  tgt_id: 4,  weight: 0.0, trait_id: 1, innov_num: 1,  mut_num: 0, recurrent: false, enabled: true }
+    - { src_id: 2,  tgt_id: 4,  weight: 0.0, trait_id: 1, innov_num: 2,  mut_num: 0, recurrent: false, enabled: true }
+    - { src_id: 3,  tgt_id: 4,  weight: 0.0, trait_id: 1, innov_num: 3,  mut_num: 0, recurrent: false, enabled: true }

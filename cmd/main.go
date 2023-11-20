@@ -27,7 +27,7 @@ const (
 
 func main() {
 	ebiten.SetWindowSize(windowWidth, windowHeight)
-	ebiten.SetWindowTitle("Flappy Gopher (Ebitengine Demo)")
+	ebiten.SetWindowTitle("Flappy Gopher")
 	ebiten.SetTPS(60)
 	game := game.NewGame(windowWidth, windowHeight, 20)
 

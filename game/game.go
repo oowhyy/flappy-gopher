@@ -83,9 +83,11 @@ type Game struct {
 	mode           GameMode
 	stepID         int
 	mu             sync.Mutex
+	muDraw         sync.Mutex
 	score          int
 	dynamicSPU     bool
 	stepsPerUpdate int
+	resetsNum      int
 
 	// window
 	windowW int
@@ -126,6 +128,8 @@ func NewGame(windowW, windowHeight int, gopherN int) *Game {
 }
 
 func (g *Game) restart(gopherN int) {
+	g.muDraw.Lock()
+	defer g.muDraw.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.done != nil && g.mode != ModeGameOver {
@@ -139,6 +143,7 @@ func (g *Game) restart(gopherN int) {
 	for i := 0; i < gopherN; i++ {
 		g.gophers[i] = NewGopher(i, 100, g.windowH*3/4-gopherImage.Bounds().Dy()/2-rand.Intn(g.windowH/2))
 	}
+	g.resetsNum++
 	// g.gophers[2] = NewGopher(2, 200, 100)
 
 	g.spawnTimer = 0
@@ -150,6 +155,7 @@ func (g *Game) restart(gopherN int) {
 	g.spawnDelay = 110
 	g.gapY = 180
 	g.pipes = make([]*Pipe, 0)
+	g.pipesAhead = make([]*Pipe, 0)
 	g.speed = 3
 	g.base = NewBase(g.windowH, g.speed)
 }
@@ -235,7 +241,7 @@ func (g *Game) SpawnPipe() {
 		g.spawnTimer = g.spawnDelay
 		newPipe := NewPipe(g.windowW, g.windowH, g.gapY, g.speed)
 		g.pipes = append(g.pipes, newPipe)
-		g.pipesAhead = append(g.pipes, newPipe)
+		g.pipesAhead = append(g.pipesAhead, newPipe)
 	}
 	g.spawnTimer--
 }
@@ -255,13 +261,15 @@ func (g *Game) Update() error {
 		}
 	} else {
 		g.Step()
-		// g.Step()
 		g.Step()
+		// g.Step()
 	}
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	g.muDraw.Lock()
+	defer g.muDraw.Unlock()
 	screen.Fill(color.RGBA{0x80, 0xa0, 0xc0, 0xff})
 	for _, pipe := range g.pipes {
 		pipe.Draw(screen)
@@ -289,8 +297,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	scoreStr := fmt.Sprintf("%04d", g.Score())
 	text.Draw(screen, scoreStr, arcadeFont, g.windowW-len(scoreStr)*fontSize, fontSize, color.White)
-	spuStr := fmt.Sprintf("%d", g.stepsPerUpdate)
-	text.Draw(screen, spuStr, arcadeFont, 10, fontSize, color.White)
+	resetsStr := fmt.Sprintf("Gen: %d", g.resetsNum)
+	text.Draw(screen, resetsStr, arcadeFont, 10, 2*fontSize, color.White)
 	text.Draw(screen, scoreStr, arcadeFont, g.windowW-len(scoreStr)*fontSize, fontSize, color.White)
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("TPS: %0.2f", ebiten.ActualTPS()))
 }
